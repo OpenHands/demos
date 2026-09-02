@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "kanban-demo",
+  "display_name": "Kanban Demo",
+  "version": "0.1.0",
+  "description": "A small file-backed Kanban board extension with a cron manager automation.",
+  "entrypoint": "extension.js",
+  "contributes": {
+    "pages": [
+      {
+        "id": "board",
+        "title": "Kanban Demo",
+        "path": "/board",
+        "nav_label": "Kanban Demo",
+        "description": "Queue work and let a manager automation route it to conversations."
+      }
+    ]
+  }
+}
