@@ -1,4 +1,4 @@
-# Kanban Demo Canvas Extension
+# Vibe Kanban Canvas Extension
 
 This is a compact reference implementation artifact for converting the core
 Vibe Manager idea into an Agent Canvas Extension plus cron automation.
@@ -9,9 +9,9 @@ state through JSON files on the active Agent Server filesystem.
 
 ## What it demonstrates
 
-- An installable Canvas Extension page at `/extensions/kanban-demo/board`.
+- An installable Canvas Extension page at `/extensions/vibe-kanban/board`.
 - A Vibe-like Kanban UI rendered inside Agent Canvas.
-- Task persistence as JSON files under `~/.openhands/kanban-demo/`.
+- Task persistence as JSON files under `~/.openhands/vibe-kanban/`.
 - A manager automation scheduled every minute with `* * * * *`.
 - LLM-assisted routing through a persistent manager conversation:
   - mark a card done immediately,
@@ -25,16 +25,19 @@ state through JSON files on the active Agent Server filesystem.
 
 1. Run the full local Agent Canvas stack with the automation backend enabled.
 2. Open **Customize -> Extensions**.
-3. Install this extension from the backend-local path:
+3. Install this extension from the PR branch:
 
    ```text
-   src/fixtures/canvas-extensions/kanban-demo
+   Source: https://github.com/OpenHands/demos.git
+   Ref: add-kanban-demo-extension
+   Repository path: agent-canvas/canvas-extensions/vibe-kanban
    ```
 
-   Use the absolute path if the Agent Server resolves relative paths from a
-   different working directory.
+   For a checked-out local copy of this repo, install from the backend-local
+   path `agent-canvas/canvas-extensions/vibe-kanban`, or use its absolute path
+   if the Agent Server resolves relative paths from a different directory.
 4. Installation should leave the extension disabled.
-5. Enable it and open the **Kanban Demo** nav item.
+5. Enable it and open the **Vibe Kanban** nav item.
 6. Submit a task and click **Start manager**.
 7. Click **Run now** or wait for the cron automation to run.
 
@@ -52,7 +55,7 @@ state through JSON files on the active Agent Server filesystem.
 ## Storage layout
 
 ```text
-~/.openhands/kanban-demo/
+~/.openhands/vibe-kanban/
   index.json
   tasks/
     <task-id>.json

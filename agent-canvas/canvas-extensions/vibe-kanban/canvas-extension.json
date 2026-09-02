@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "name": "kanban-demo",
-  "display_name": "Kanban Demo",
+  "name": "vibe-kanban",
+  "display_name": "Vibe Kanban",
   "version": "0.1.0",
   "description": "A small file-backed Kanban board extension with a cron manager automation.",
   "entrypoint": "extension.js",
@@ -9,9 +9,9 @@
     "pages": [
       {
         "id": "board",
-        "title": "Kanban Demo",
+        "title": "Vibe Kanban",
         "path": "/board",
-        "nav_label": "Kanban Demo",
+        "nav_label": "Vibe Kanban",
         "description": "Queue work and let a manager automation route it to conversations."
       }
     ]
