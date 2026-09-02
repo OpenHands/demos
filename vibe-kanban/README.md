@@ -33,11 +33,11 @@ Server filesystem.
    ```text
    Source: https://github.com/OpenHands/demos.git
    Ref: add-kanban-demo-extension
-   Repository path: agent-canvas/canvas-extensions/vibe-kanban
+   Repository path: vibe-kanban
    ```
 
    For a checked-out local copy of this repo, install from the backend-local
-   path `agent-canvas/canvas-extensions/vibe-kanban`, or use its absolute path
+   path `vibe-kanban`, or use its absolute path
    if the Agent Server resolves relative paths from a different directory.
 4. Installation should leave the extension disabled.
 5. Enable it and open the **Vibe Kanban** nav item.
