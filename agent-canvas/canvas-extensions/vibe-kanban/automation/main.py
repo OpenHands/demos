@@ -214,23 +214,32 @@ def append_message(conversation_id: str, text: str) -> None:
     )
 
 
-def build_conversation_request(initial_text: str, title: str | None = None) -> dict:
+def build_conversation_request(
+    initial_text: str,
+    title: str | None = None,
+    *,
+    include_worker_tools: bool = True,
+    max_iterations: int = 1000,
+) -> dict:
     settings = agent("/api/settings", headers={"X-Expose-Secrets": "encrypted"}, timeout=30)
     agent_settings = dict(settings.get("agent_settings") or {})
     agent_settings.pop("schema_version", None)
     agent_settings.pop("mcp_config", None)
-    existing_tools = agent_settings.get("tools") if isinstance(agent_settings.get("tools"), list) else []
-    tool_names = {tool.get("name") for tool in existing_tools if isinstance(tool, dict)}
-    for name in ["terminal", "file_editor", "task_tracker", "browser_tool_set"]:
-        if name not in tool_names:
-            existing_tools.append({"name": name, "params": {}})
-    agent_settings["tools"] = existing_tools
+    if include_worker_tools:
+        existing_tools = agent_settings.get("tools") if isinstance(agent_settings.get("tools"), list) else []
+        tool_names = {tool.get("name") for tool in existing_tools if isinstance(tool, dict)}
+        for name in ["terminal", "file_editor", "task_tracker", "browser_tool_set"]:
+            if name not in tool_names:
+                existing_tools.append({"name": name, "params": {}})
+        agent_settings["tools"] = existing_tools
+    else:
+        agent_settings["tools"] = []
     context = dict(agent_settings.get("agent_context") or {})
     context.update(
         {
-            "load_public_skills": True,
-            "load_user_skills": True,
-            "load_project_skills": True,
+            "load_public_skills": include_worker_tools,
+            "load_user_skills": include_worker_tools,
+            "load_project_skills": include_worker_tools,
         }
     )
     agent_settings["agent_context"] = context
@@ -243,7 +252,7 @@ def build_conversation_request(initial_text: str, title: str | None = None) -> d
             "working_dir": CONFIG.get("working_dir") or "workspace/project",
         },
         "confirmation_policy": {"kind": "NeverConfirm"},
-        "max_iterations": conversation_settings.get("max_iterations") or 1000,
+        "max_iterations": (conversation_settings.get("max_iterations") or max_iterations) if include_worker_tools else max_iterations,
         "stuck_detection": True,
         "autotitle": True,
         "worktree": False,
@@ -258,8 +267,24 @@ def build_conversation_request(initial_text: str, title: str | None = None) -> d
     return payload
 
 
-def start_conversation(initial_text: str, title: str | None = None) -> str:
-    created = agent("/api/conversations", "POST", build_conversation_request(initial_text, title), timeout=60)
+def start_conversation(
+    initial_text: str,
+    title: str | None = None,
+    *,
+    include_worker_tools: bool = True,
+    max_iterations: int = 1000,
+) -> str:
+    created = agent(
+        "/api/conversations",
+        "POST",
+        build_conversation_request(
+            initial_text,
+            title,
+            include_worker_tools=include_worker_tools,
+            max_iterations=max_iterations,
+        ),
+        timeout=60,
+    )
     conversation_id = created.get("app_conversation_id") or created.get("id")
     if not conversation_id:
         raise RuntimeError(f"conversation create returned no id: {created}")
@@ -274,7 +299,7 @@ Choose exactly one decision:
 - immediate: only for notes, acknowledgements, bookkeeping, or tasks completed by updating the card.
 - append_to_conversation: for a natural follow-up to a known conversation. Idle or finished conversations remain eligible.
 - start_new_conversation: for distinct work that needs a worker conversation.
-Return JSON only, with keys: decision, conversation_id, purpose, summary, reason, immediate_result.
+Do not call tools. Do not explain your answer. Return JSON only, with keys: decision, conversation_id, purpose, summary, reason, immediate_result.
 """
 
 
@@ -282,7 +307,12 @@ def ensure_manager_conversation(index: dict) -> str:
     cid = index.get("manager_conversation_id")
     if cid and conversation_status(str(cid)) != "deleted":
         return str(cid)
-    cid = start_conversation(routing_system_prompt(), "Vibe Kanban routing manager")
+    cid = start_conversation(
+        routing_system_prompt(),
+        "Vibe Kanban routing manager",
+        include_worker_tools=False,
+        max_iterations=20,
+    )
     index["manager_conversation_id"] = cid
     write_index(index)
     return cid
@@ -316,7 +346,8 @@ def route_prompt(task: dict, known_conversations: dict) -> str:
         "If you choose append_to_conversation, conversation_id must be one of known_conversations.\n"
         "If you choose start_new_conversation, provide a concise purpose and summary.\n"
         "If you choose immediate, provide immediate_result and no conversation_id.\n"
-        "Return JSON only.\n\n"
+        "For normal work requests such as research, coding, writing, or weather lookup, prefer start_new_conversation unless a known conversation is clearly related.\n"
+        "Return one JSON object only, with this shape and no markdown: {\"decision\":\"start_new_conversation\",\"conversation_id\":null,\"purpose\":\"...\",\"summary\":\"...\",\"reason\":\"...\",\"immediate_result\":null}\n\n"
         + json.dumps(body, indent=2, ensure_ascii=False)
     )
 
@@ -332,30 +363,52 @@ def event_page(conversation_id: str):
     return data.get("items") or data.get("events") or []
 
 
-def extract_strings(value) -> list[str]:
+def extract_strings(value, *, depth: int = 0) -> list[str]:
+    if depth > 12:
+        return []
     found: list[str] = []
     if isinstance(value, str):
         found.append(value)
     elif isinstance(value, list):
         for item in value:
-            found.extend(extract_strings(item))
+            found.extend(extract_strings(item, depth=depth + 1))
     elif isinstance(value, dict):
-        for key in ("text", "content", "message", "thought", "reasoning_content"):
-            if key in value:
-                found.extend(extract_strings(value[key]))
-        for key in ("args", "arguments"):
-            if key in value and isinstance(value[key], str):
-                found.append(value[key])
+        for item in value.values():
+            found.extend(extract_strings(item, depth=depth + 1))
     return found
 
 
+def iter_json_objects(text: str):
+    for fenced in re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S):
+        yield fenced
+    starts = [i for i, char in enumerate(text) if char == "{"]
+    for start in starts:
+        depth = 0
+        in_string = False
+        escaped = False
+        for pos in range(start, len(text)):
+            char = text[pos]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        yield text[start : pos + 1]
+                        break
+
+
 def parse_decision_from_text(text: str) -> dict | None:
-    candidates = []
-    candidates.extend(re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S))
-    candidates.extend(re.findall(r"\{[^{}]*\"decision\"[^{}]*\}", text, re.S))
-    if text.strip().startswith("{"):
-        candidates.append(text.strip())
-    for raw in candidates:
+    for raw in iter_json_objects(text):
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
@@ -365,12 +418,22 @@ def parse_decision_from_text(text: str) -> dict | None:
     return None
 
 
+def is_user_prompt_event(event: dict, task_id: str) -> bool:
+    if event.get("source") == "user":
+        return True
+    message = event.get("llm_message") or event.get("message") or {}
+    if isinstance(message, dict) and message.get("role") == "user":
+        return True
+    joined = "\n".join(extract_strings(event))
+    return task_id in joined and "allowed_decisions" in joined
+
+
 def latest_routing_decision(conversation_id: str, task_id: str) -> dict | None:
     for event in event_page(conversation_id):
+        if isinstance(event, dict) and is_user_prompt_event(event, task_id):
+            continue
         joined = "\n".join(extract_strings(event))
         if not joined:
-            continue
-        if task_id in joined and "allowed_decisions" in joined:
             continue
         decision = parse_decision_from_text(joined)
         if decision:
@@ -389,13 +452,28 @@ def wait_until_not_running(conversation_id: str, timeout_seconds: int = ROUTING_
     return last
 
 
+def wait_for_routing_decision(conversation_id: str, task_id: str) -> dict | None:
+    deadline = time.time() + ROUTING_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        decision = latest_routing_decision(conversation_id, task_id)
+        if decision:
+            return decision
+        status = conversation_status(conversation_id)
+        if status in FAILED_STATUSES:
+            return None
+        time.sleep(2)
+    return None
+
+
 def ask_manager_for_route(index: dict, task: dict) -> dict:
     manager_cid = ensure_manager_conversation(index)
     append_message(manager_cid, route_prompt(task, index.get("known_conversations") or {}))
-    wait_until_not_running(manager_cid)
-    decision = latest_routing_decision(manager_cid, task["id"])
+    decision = wait_for_routing_decision(manager_cid, task["id"])
     if not decision:
-        raise RuntimeError("manager conversation did not return a valid routing JSON object")
+        status = conversation_status(manager_cid)
+        raise RuntimeError(
+            f"manager conversation did not return a valid routing JSON object (status: {status})"
+        )
     return decision
 
 
